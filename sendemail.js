@@ -81,15 +81,12 @@ app.get("/verify-email/:id", async (req, res) => {
   console.log("Received verification request for ID:", userId);
 
   try {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("edutrack")
       .update({ is_verified: true })
-      .eq("id", userId)
-      .select()
-      .single(); // <- add this
+      .eq("id", userId);
 
-
-    if (error || !data || data.length === 0) {
+    if (error) {
       console.error("Verification failed:", error);
       return res.status(400).send("Verification failed or user not found");
     }
@@ -108,6 +105,7 @@ app.get("/verify-email/:id", async (req, res) => {
     res.status(500).send("Server error during verification");
   }
 });
+
 
 
 
