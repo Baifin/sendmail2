@@ -85,7 +85,9 @@ app.get("/verify-email/:id", async (req, res) => {
       .from("edutrack")
       .update({ is_verified: true })
       .eq("id", userId)
-      .select();
+      .select()
+      .single(); // <- add this
+
 
     if (error || !data || data.length === 0) {
       console.error("Verification failed:", error);
