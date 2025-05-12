@@ -39,7 +39,7 @@ app.post("/send-email", async (req, res) => {
 
   let finalHtml = html;
   if (userId) {
-    const verificationUrl = `https://732d-2406-7400-c2-12bf-eccc-3875-a32b-cf8.ngrok-free.app/verify-email/${userId}`;
+    const verificationUrl = `https://sendmail3.onrender.com/verify-email/${userId}`;
     finalHtml += `
       <p>Click the link below to verify your account:</p>
       <a href="${verificationUrl}">${verificationUrl}</a>
