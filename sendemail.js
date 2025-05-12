@@ -1,123 +1,79 @@
-const express = require("express");
-const nodemailer = require("nodemailer");
-const cors = require("cors");
-const { createClient } = require("@supabase/supabase-js");
-require("dotenv").config();
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { supabase } from './lib/supabaseClient.js';
+import transporter from './lib/nodemailer.js';
+
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json()); // to parse JSON request bodies
 
-// Supabase admin client (with service role)
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// 🔽 Your OTP-based email registration endpoint
+app.post("/register", async (req, res) => {
+  const { email, password, fullName, role, department } = req.body;
 
-// Nodemailer transporter (Gmail SMTP)
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: true,
-  },
-});
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
 
-// ✅ Send email with optional image and verification link
-app.post("/send-email", async (req, res) => {
-  const { to, subject, text, html, image, userId } = req.body;
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error || !data?.user) return res.status(400).json({ error: error?.message });
 
-  if (!to || !subject || (!text && !html)) {
-    return res.status(400).send("Missing required fields");
-  }
+  await supabase.from("edutrack").insert({
+    id: data.user.id,
+    full_name: fullName,
+    role,
+    dep: department,
+    is_verified: false,
+    otp,
+    otp_expires_at: otpExpiresAt.toISOString()
+  });
 
-  let finalHtml = html;
-  if (userId) {
-    const verificationUrl = `https://sendmail3.onrender.com/verify-email/${userId}`;
-    finalHtml += `
-      <p>Click the link below to verify your account:</p>
-      <a href="${verificationUrl}">${verificationUrl}</a>
-    `;
-  }
-
-  const mailOptions = {
+  await transporter.sendMail({
     from: process.env.GMAIL_USER,
-    to,
-    subject,
-    text: text || "No text content provided",
-    html: finalHtml || "<p>No HTML content provided</p>",
-  };
+    to: email,
+    subject: "Your verification code",
+    html: `<p>Your OTP code is: <strong>${otp}</strong>. It expires in 10 minutes.</p>`,
+  });
 
-  if (image) {
-    const imageBuffer = Buffer.from(image.split(";base64,").pop(), "base64");
-    mailOptions.attachments = [
-      {
-        filename: "visitor-qrcode.png",
-        content: imageBuffer,
-        encoding: "base64",
-      },
-    ];
-  }
-
-  try {
-    await transporter.sendMail(mailOptions);
-    res.status(200).send("Email sent successfully");
-  } catch (error) {
-    console.error("Email send failed:", error);
-    res.status(500).send("Failed to send email");
-  }
+  res.status(200).json({ message: "OTP sent", userId: data.user.id });
 });
 
-// ✅ Verification endpoint
-app.get("/verify-email/:id", async (req, res) => {
-  const userId = req.params.id;
-  console.log("Received verification request for ID:", userId);
+// 🔽 Your OTP verification endpoint
+app.post("/verify-otp", async (req, res) => {
+  const { email, otp } = req.body;
 
-  try {
-    // Check if the user exists before updating
-    const { data, error: fetchError } = await supabase
-      .from("edutrack")
-      .select("id")
-      .eq("id", userId)
-      .single(); // .single() will return one row or null
+  const { data: user, error } = await supabase
+    .from("edutrack")
+    .select("*")
+    .eq("email", email)
+    .single();
 
-    if (fetchError || !data) {
-      console.error("User not found:", fetchError);
-      return res.status(404).send("User not found");
-    }
+  if (error || !user) return res.status(404).json({ error: "User not found" });
+  if (user.is_verified) return res.status(400).json({ error: "Already verified" });
 
-    // Update is_verified field
-    const { error } = await supabase
-      .from("edutrack")
-      .update({ is_verified: true })
-      .eq("id", userId);
+  const now = new Date();
+  if (user.otp !== otp || new Date(user.otp_expires_at) < now)
+    return res.status(400).json({ error: "Invalid or expired OTP" });
 
-    if (error) {
-      console.error("Verification failed:", error);
-      return res.status(400).send("Verification failed");
-    }
+  await supabase
+    .from("edutrack")
+    .update({ is_verified: true, otp: null, otp_expires_at: null })
+    .eq("email", email);
 
-    return res.send(`
-      <html>
-        <head><title>Verification Success</title></head>
-        <body style="text-align:center; font-family:Arial; padding:50px;">
-          <h2>✅ Email Verified</h2>
-          <p>You may now log in to your account.</p>
-        </body>
-      </html>
-    `);
-  } catch (err) {
-    console.error("Verification error:", err);
-    res.status(500).send("Server error during verification");
-  }
+  res.status(200).json({ message: "Email verified" });
 });
 
+// Health check route
+app.get("/", (req, res) => {
+  res.send("Server running...");
+});
+
+// Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server listening on port ${PORT}`);
 });
