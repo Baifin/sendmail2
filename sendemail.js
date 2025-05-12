@@ -75,12 +75,24 @@ app.post("/send-email", async (req, res) => {
 });
 
 // ✅ Verification endpoint
-// ✅ Verification endpoint
 app.get("/verify-email/:id", async (req, res) => {
   const userId = req.params.id;
   console.log("Received verification request for ID:", userId);
 
   try {
+    // Check if the user exists before updating
+    const { data, error: fetchError } = await supabase
+      .from("edutrack")
+      .select("id")
+      .eq("id", userId)
+      .single(); // .single() will return one row or null
+
+    if (fetchError || !data) {
+      console.error("User not found:", fetchError);
+      return res.status(404).send("User not found");
+    }
+
+    // Update is_verified field
     const { error } = await supabase
       .from("edutrack")
       .update({ is_verified: true })
@@ -88,7 +100,7 @@ app.get("/verify-email/:id", async (req, res) => {
 
     if (error) {
       console.error("Verification failed:", error);
-      return res.status(400).send("Verification failed or user not found");
+      return res.status(400).send("Verification failed");
     }
 
     return res.send(`
@@ -105,10 +117,6 @@ app.get("/verify-email/:id", async (req, res) => {
     res.status(500).send("Server error during verification");
   }
 });
-
-
-
-
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
